@@ -1,10 +1,16 @@
 import os, asyncio, yfinance as yf
 from telegram import Bot
+from flask import Flask
+import threading
 
 TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
-
 bot = Bot(token=TOKEN)
+
+app = Flask(__name__)
+@app.route('/')
+def home():
+    return "Bot is running!"
 
 PAIRS = {
     "XAUUSD - ذهب": "GC=F",
@@ -14,29 +20,34 @@ PAIRS = {
 
 async def check_pair(name, symbol):
     try:
-        df = yf.download(symbol, period="1d", interval="15m", progress=False)
+        df = yf.download(symbol, period="3d", interval="15m", progress=False)
         if len(df) < 25:
             return
-        close = float(df['Close'].iloc[-1].iloc[0] if hasattr(df['Close'].iloc[-1], 'iloc') else df['Close'].iloc[-1])
+        close = float(df['Close'].iloc[-1])
         low = float(df['Low'].iloc[-2])
         high = float(df['High'].iloc[-2])
-        prev_low = float(df['Low'].iloc[-25:-2].min())
-        prev_high = float(df['High'].iloc[-25:-2].max())
-
-        if low <= prev_low and close > prev_low:
-            msg = f"🔥 اشارة ICT - {name}\n\n✅ شراء من: {close:.2f}\n🛑 ستوب: {prev_low:.2f}\n🎯 هدف: {close + (close-prev_low)*2:.2f}\n\nالسبب: سحب سيولة من القاع + رجوع"
-            await bot.send_message(chat_id=CHAT_ID, text=msg)
-        elif high >= prev_high and close < prev_high:
-            msg = f"🔥 اشارة ICT - {name}\n\n✅ بيع من: {close:.2f}\n🛑 ستوب: {prev_high:.2f}\n🎯 هدف: {close - (prev_high-close)*2:.2f}\n\nالسبب: سحب سيولة من القمة + رجوع"
+        prev_low = float(df['Low'].iloc[-3])
+        prev_high = float(df['High'].iloc[-3])
+        msg = None
+        if close > high and low > prev_low:
+            msg = f"🚀 كسر صاعد {name}\nالسعر: {close:.4f}\nدخول شراء"
+        elif close < low and high < prev_high:
+            msg = f"🔻 كسر هابط {name}\nالسعر: {close:.4f}\nدخول بيع"
+        if msg:
             await bot.send_message(chat_id=CHAT_ID, text=msg)
     except Exception as e:
-        print(f"Error {name}: {e}")
+        print(e)
 
-async def main():
-    await bot.send_message(chat_id=CHAT_ID, text="✅ البوت اشتغل! نراقب في الذهب + EURUSD + GBPUSD بنظام ICT")
+async def loop():
     while True:
         for name, sym in PAIRS.items():
             await check_pair(name, sym)
-        await asyncio.sleep(900)
+        await asyncio.sleep(60)
 
-asyncio.run(main())
+def run_bot():
+    asyncio.run(loop())
+
+if __name__ == "__main__":
+    threading.Thread(target=run_bot, daemon=True).start()
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
